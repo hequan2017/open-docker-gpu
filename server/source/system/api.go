@@ -202,6 +202,20 @@ func (i *initApi) InitializeData(ctx context.Context) (context.Context, error) {
 		{ApiGroup: "版本控制", Method: "POST", Path: "/sysVersion/importVersion", Description: "同步版本"},
 		{ApiGroup: "版本控制", Method: "DELETE", Path: "/sysVersion/deleteSysVersion", Description: "删除版本"},
 		{ApiGroup: "版本控制", Method: "DELETE", Path: "/sysVersion/deleteSysVersionByIds", Description: "批量删除版本"},
+
+		{ApiGroup: "Docker", Method: "GET", Path: "/docker/servers", Description: "获取正常服务器"},
+		{ApiGroup: "Docker", Method: "GET", Path: "/docker/ps", Description: "获取容器列表"},
+		{ApiGroup: "Docker", Method: "GET", Path: "/docker/execWs", Description: "容器WebSSH终端"},
+		{ApiGroup: "Docker", Method: "GET", Path: "/docker/findDockerEndpoint", Description: "查询Docker Endpoint"},
+		{ApiGroup: "Docker", Method: "GET", Path: "/docker/getDockerEndpointList", Description: "Docker Endpoint列表"},
+		{ApiGroup: "Docker", Method: "POST", Path: "/docker/createDockerEndpoint", Description: "创建Docker Endpoint"},
+		{ApiGroup: "Docker", Method: "DELETE", Path: "/docker/deleteDockerEndpoint", Description: "删除Docker Endpoint"},
+		{ApiGroup: "Docker", Method: "DELETE", Path: "/docker/deleteDockerEndpointByIds", Description: "批量删除Docker Endpoint"},
+		{ApiGroup: "Docker", Method: "PUT", Path: "/docker/updateDockerEndpoint", Description: "更新Docker Endpoint"},
+		{ApiGroup: "Docker", Method: "POST", Path: "/docker/createContainer", Description: "创建容器"},
+		{ApiGroup: "Docker", Method: "POST", Path: "/docker/startContainer", Description: "启动容器"},
+		{ApiGroup: "Docker", Method: "POST", Path: "/docker/stopContainer", Description: "停止容器"},
+		{ApiGroup: "Docker", Method: "DELETE", Path: "/docker/removeContainer", Description: "删除容器"},
 	}
 	if err := db.Create(&entities).Error; err != nil {
 		return ctx, errors.Wrap(err, sysModel.SysApi{}.TableName()+"表数据初始化失败!")

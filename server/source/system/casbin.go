@@ -204,6 +204,21 @@ func (i *initCasbin) InitializeData(ctx context.Context) (context.Context, error
 		{Ptype: "p", V0: "888", V1: "/sysVersion/deleteSysVersion", V2: "DELETE"},
 		{Ptype: "p", V0: "888", V1: "/sysVersion/deleteSysVersionByIds", V2: "DELETE"},
 
+		// Docker 管理 - 超级管理员权限
+		{Ptype: "p", V0: "888", V1: "/docker/servers", V2: "GET"},
+		{Ptype: "p", V0: "888", V1: "/docker/ps", V2: "GET"},
+		{Ptype: "p", V0: "888", V1: "/docker/execWs", V2: "GET"},
+		{Ptype: "p", V0: "888", V1: "/docker/findDockerEndpoint", V2: "GET"},
+		{Ptype: "p", V0: "888", V1: "/docker/getDockerEndpointList", V2: "GET"},
+		{Ptype: "p", V0: "888", V1: "/docker/createDockerEndpoint", V2: "POST"},
+		{Ptype: "p", V0: "888", V1: "/docker/deleteDockerEndpoint", V2: "DELETE"},
+		{Ptype: "p", V0: "888", V1: "/docker/deleteDockerEndpointByIds", V2: "DELETE"},
+		{Ptype: "p", V0: "888", V1: "/docker/updateDockerEndpoint", V2: "PUT"},
+		{Ptype: "p", V0: "888", V1: "/docker/createContainer", V2: "POST"},
+		{Ptype: "p", V0: "888", V1: "/docker/startContainer", V2: "POST"},
+		{Ptype: "p", V0: "888", V1: "/docker/stopContainer", V2: "POST"},
+		{Ptype: "p", V0: "888", V1: "/docker/removeContainer", V2: "DELETE"},
+
 		{Ptype: "p", V0: "8881", V1: "/user/admin_register", V2: "POST"},
 		{Ptype: "p", V0: "8881", V1: "/api/createApi", V2: "POST"},
 		{Ptype: "p", V0: "8881", V1: "/api/getApiList", V2: "POST"},
@@ -243,6 +258,11 @@ func (i *initCasbin) InitializeData(ctx context.Context) (context.Context, error
 		{Ptype: "p", V0: "8881", V1: "/customer/customer", V2: "GET"},
 		{Ptype: "p", V0: "8881", V1: "/customer/customerList", V2: "GET"},
 		{Ptype: "p", V0: "8881", V1: "/user/getUserInfo", V2: "GET"},
+
+		// Docker 管理 - 普通用户子角色（只读 + 终端）
+		{Ptype: "p", V0: "8881", V1: "/docker/servers", V2: "GET"},
+		{Ptype: "p", V0: "8881", V1: "/docker/ps", V2: "GET"},
+		{Ptype: "p", V0: "8881", V1: "/docker/execWs", V2: "GET"},
 
 		{Ptype: "p", V0: "9528", V1: "/user/admin_register", V2: "POST"},
 		{Ptype: "p", V0: "9528", V1: "/api/createApi", V2: "POST"},
@@ -286,6 +306,11 @@ func (i *initCasbin) InitializeData(ctx context.Context) (context.Context, error
 		{Ptype: "p", V0: "9528", V1: "/customer/customerList", V2: "GET"},
 		{Ptype: "p", V0: "9528", V1: "/autoCode/createTemp", V2: "POST"},
 		{Ptype: "p", V0: "9528", V1: "/user/getUserInfo", V2: "GET"},
+
+		// Docker 管理 - 测试角色（只读 + 终端）
+		{Ptype: "p", V0: "9528", V1: "/docker/servers", V2: "GET"},
+		{Ptype: "p", V0: "9528", V1: "/docker/ps", V2: "GET"},
+		{Ptype: "p", V0: "9528", V1: "/docker/execWs", V2: "GET"},
 	}
 	if err := db.Create(&entities).Error; err != nil {
 		return ctx, errors.Wrap(err, "Casbin 表 ("+i.InitializerName()+") 数据初始化失败!")

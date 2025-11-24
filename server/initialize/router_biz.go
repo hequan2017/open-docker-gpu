@@ -10,11 +10,15 @@ func holder(routers ...*gin.RouterGroup) {
 	_ = router.RouterGroupApp
 }
 func initBizRouter(routers ...*gin.RouterGroup) {
-	privateGroup := routers[0]
-	publicGroup := routers[1]
-	holder(publicGroup, privateGroup) // 占位方法，保证文件可以正确加载，避免go空变量检测报错，请勿删除。
-	{
-		sshRouter := router.RouterGroupApp.Ssh
-		sshRouter.InitSshServerRouter(privateGroup, publicGroup)
-	}
+    privateGroup := routers[0]
+    publicGroup := routers[1]
+    holder(publicGroup, privateGroup) // 占位方法，保证文件可以正确加载，避免go空变量检测报错，请勿删除。
+    {
+        sshRouter := router.RouterGroupApp.Ssh
+        sshRouter.InitSshServerRouter(privateGroup, publicGroup)
+    }
+    {
+        dockerRouter := router.RouterGroupApp.Docker
+        dockerRouter.InitDockerRouter(privateGroup, publicGroup)
+    }
 }
