@@ -215,6 +215,8 @@ func (i *initCasbin) InitializeData(ctx context.Context) (context.Context, error
 		{Ptype: "p", V0: "888", V1: "/docker/deleteDockerEndpointByIds", V2: "DELETE"},
 		{Ptype: "p", V0: "888", V1: "/docker/updateDockerEndpoint", V2: "PUT"},
 		{Ptype: "p", V0: "888", V1: "/docker/createContainer", V2: "POST"},
+		{Ptype: "p", V0: "888", V1: "/docker/createContainerByDockerfile", V2: "POST"},
+		{Ptype: "p", V0: "888", V1: "/docker/createContainerWithOptions", V2: "POST"},
 		{Ptype: "p", V0: "888", V1: "/docker/startContainer", V2: "POST"},
 		{Ptype: "p", V0: "888", V1: "/docker/stopContainer", V2: "POST"},
 		{Ptype: "p", V0: "888", V1: "/docker/removeContainer", V2: "DELETE"},
@@ -322,6 +324,11 @@ func (i *initCasbin) InitializeData(ctx context.Context) (context.Context, error
 func (i *initCasbin) DataInserted(ctx context.Context) bool {
 	db, ok := ctx.Value("db").(*gorm.DB)
 	if !ok {
+		return false
+	}
+	// 若缺少新的 Docker 创建容器权限，则认为需要重新插入
+	if errors.Is(db.Where(adapter.CasbinRule{Ptype: "p", V0: "888", V1: "/docker/createContainerByDockerfile", V2: "POST"}).
+		First(&adapter.CasbinRule{}).Error, gorm.ErrRecordNotFound) {
 		return false
 	}
 	if errors.Is(db.Where(adapter.CasbinRule{Ptype: "p", V0: "9528", V1: "/user/getUserInfo", V2: "GET"}).

@@ -46,28 +46,113 @@
             <el-table-column prop="Status" label="状态" width="120" />
             <el-table-column prop="Ports" label="端口" min-width="120" />
             <el-table-column prop="RunningFor" label="运行时长" width="100" />
-            <el-table-column prop="CreatedAt" label="创建时间" width="140" />
-          <el-table-column label="操作" width="180">
+          <el-table-column prop="CreatedAt" label="创建时间" width="140" />
+          <el-table-column type="expand">
+            <template #default="scope">
+              <div style="margin:8px 0; display:flex; gap:8px; align-items:center">
+                <span>尾部</span>
+                <el-input-number v-model="scope.row.__tailTail" :min="0" :max="20000" size="small" />
+                <el-button size="small" :loading="scope.row.__tailLoading" @click="fetchInlineLogs(scope.row)">刷新尾部日志</el-button>
+              </div>
+              <div class="logs"><pre>{{ scope.row.__tailLogs || '暂无日志' }}</pre></div>
+            </template>
+          </el-table-column>
+          <el-table-column label="操作" width="240">
             <template #default="scope">
               <el-button size="small" @click="handleStart(scope.row)">启动</el-button>
               <el-button size="small" type="warning" @click="handleStop(scope.row)">停止</el-button>
               <el-button size="small" type="danger" @click="handleRemove(scope.row)">删除</el-button>
               <el-button size="small" type="success" @click="openTerminal(scope.row)">终端</el-button>
+              <el-button size="small" type="info" @click="openLogs(scope.row)">实时日志</el-button>
             </template>
           </el-table-column>
           </el-table>
         </el-card>
       </el-col>
     </el-row>
-    <el-dialog v-model="createDialog" title="新建容器" width="520px">
-      <el-form :model="createForm" label-width="120px">
-        <el-form-item label="镜像">
-          <el-input v-model="createForm.image" placeholder="如：nginx:latest" />
-        </el-form-item>
-        <el-form-item label="名称">
-          <el-input v-model="createForm.name" placeholder="容器名称，可空" />
-        </el-form-item>
-      </el-form>
+    <el-dialog v-model="createDialog" title="新建容器" width="720px">
+      <el-tabs v-model="createMode">
+        <el-tab-pane label="Dockerfile" name="dockerfile">
+          <el-form :model="dockerfileForm" label-width="120px">
+            <el-form-item label="Dockerfile">
+              <el-input type="textarea" v-model="dockerfileForm.dockerfile" :rows="10" placeholder="输入Dockerfile内容" />
+            </el-form-item>
+          </el-form>
+        </el-tab-pane>
+        <el-tab-pane label="参数化" name="params">
+          <el-form :model="advancedForm" label-width="120px">
+            <el-form-item label="镜像">
+              <el-input v-model="advancedForm.image" placeholder="如：nginx:latest" />
+            </el-form-item>
+            <el-form-item label="名称">
+              <el-input v-model="advancedForm.name" placeholder="容器名称，可空" />
+            </el-form-item>
+            <el-form-item label="工作目录">
+              <el-input v-model="advancedForm.workingDir" placeholder="如：/app" />
+            </el-form-item>
+            <el-form-item label="启用GPU">
+              <el-switch v-model="advancedForm.gpuEnabled" />
+            </el-form-item>
+            <template v-if="advancedForm.gpuEnabled">
+              <el-form-item label="GPU模式">
+                <el-select v-model="advancedForm.gpuMode" placeholder="选择模式" style="width: 200px">
+                  <el-option label="全部GPU" value="all" />
+                  <el-option label="按数量" value="count" />
+                  <el-option label="指定设备" value="devices" />
+                </el-select>
+              </el-form-item>
+              <el-form-item label="数量" v-if="advancedForm.gpuMode==='count'">
+                <el-input-number v-model="advancedForm.gpuCount" :min="1" />
+              </el-form-item>
+              <el-form-item label="设备IDs" v-if="advancedForm.gpuMode==='devices'">
+                <div>
+                  <div v-for="(v,i) in advancedForm.gpuDevices" :key="i" style="display:flex; gap:8px; margin-bottom:8px">
+                    <el-input v-model="advancedForm.gpuDevices[i]" placeholder="如：0 或 GPU-UUID" />
+                    <el-button @click="removeGpuDevice(i)" type="danger" size="small">删除</el-button>
+                  </div>
+                  <el-button @click="addGpuDevice" size="small">添加设备</el-button>
+                </div>
+              </el-form-item>
+            </template>
+            <el-form-item label="环境变量">
+              <div>
+                <div v-for="(v,i) in advancedForm.env" :key="i" style="display:flex; gap:8px; margin-bottom:8px">
+                  <el-input v-model="advancedForm.env[i]" placeholder="KEY=VALUE" />
+                  <el-button @click="removeEnv(i)" type="danger" size="small">删除</el-button>
+                </div>
+                <el-button @click="addEnv" size="small">添加</el-button>
+              </div>
+            </el-form-item>
+            <el-form-item label="端口映射">
+              <div>
+                <div v-for="(v,i) in advancedForm.ports" :key="i" style="display:flex; gap:8px; margin-bottom:8px">
+                  <el-input v-model="advancedForm.ports[i]" placeholder="host:container或host:container/tcp" />
+                  <el-button @click="removePort(i)" type="danger" size="small">删除</el-button>
+                </div>
+                <el-button @click="addPort" size="small">添加</el-button>
+              </div>
+            </el-form-item>
+            <el-form-item label="卷映射">
+              <div>
+                <div v-for="(v,i) in advancedForm.volumes" :key="i" style="display:flex; gap:8px; margin-bottom:8px">
+                  <el-input v-model="advancedForm.volumes[i]" placeholder="host:container或host:container:ro" />
+                  <el-button @click="removeVolume(i)" type="danger" size="small">删除</el-button>
+                </div>
+                <el-button @click="addVolume" size="small">添加</el-button>
+              </div>
+            </el-form-item>
+            <el-form-item label="命令">
+              <div>
+                <div v-for="(v,i) in advancedForm.cmd" :key="i" style="display:flex; gap:8px; margin-bottom:8px">
+                  <el-input v-model="advancedForm.cmd[i]" placeholder="命令或参数" />
+                  <el-button @click="removeCmd(i)" type="danger" size="small">删除</el-button>
+                </div>
+                <el-button @click="addCmd" size="small">添加</el-button>
+              </div>
+            </el-form-item>
+          </el-form>
+        </el-tab-pane>
+      </el-tabs>
       <template #footer>
         <el-button @click="createDialog=false">取消</el-button>
         <el-button type="primary" @click="submitCreate">创建</el-button>
@@ -91,6 +176,20 @@
         <el-button size="small" @click="terminalDialog=false">关闭</el-button>
       </template>
     </el-dialog>
+    <el-dialog v-model="logsDialog" title="容器实时日志" width="900px" @close="cleanupLogs">
+      <div style="display:flex;gap:8px;margin-bottom:8px;align-items:center">
+        <el-checkbox v-model="logsFollow">跟随</el-checkbox>
+        <el-checkbox v-model="logsTimestamps">时间戳</el-checkbox>
+        <span>尾部</span>
+        <el-input-number v-model="logsTail" :min="0" :max="20000" size="small" />
+        <el-button size="small" @click="reconnectLogs">重新连接</el-button>
+        <el-button size="small" @click="clearLogs">清空</el-button>
+      </div>
+      <div ref="logsRef" class="logs"><pre>{{ logsText }}</pre></div>
+      <template #footer>
+        <el-button size="small" @click="logsDialog=false">关闭</el-button>
+      </template>
+    </el-dialog>
   </div>
   </template>
 
@@ -101,7 +200,7 @@ import { FitAddon } from 'xterm-addon-fit'
 import { WebLinksAddon } from 'xterm-addon-web-links'
 import 'xterm/css/xterm.css'
 import { ElMessage } from 'element-plus'
-import { getDockerServers, getDockerPs, createContainer, startContainer, stopContainer, removeContainer } from '@/api/docker/docker'
+import { getDockerServers, getDockerPs, startContainer, stopContainer, removeContainer, createContainerByDockerfile, createContainerWithOptions, getDockerLogs } from '@/api/docker/docker'
 
 const servers = ref([])
 const activeId = ref('')
@@ -129,7 +228,7 @@ const fetchContainers = async () => {
     const res = await getDockerPs({ ID: activeId.value, scope: scope.value })
     loading.value = false
     if (res.code === 0) {
-      containers.value = res.data || []
+      containers.value = (res.data || []).map(r => ({ ...r, __tailLogs: '', __tailLoading: false, __tailTail: 100 }))
     } else {
       containers.value = []
       ElMessage.error(res.msg || '获取容器失败')
@@ -146,12 +245,33 @@ const onSelectServer = (index) => {
 }
 
 const createDialog = ref(false)
-const createForm = ref({ image: '', name: '' })
-const openCreate = () => { createDialog.value = true; createForm.value = { image: '', name: '' } }
+const createMode = ref('dockerfile')
+const dockerfileForm = ref({ dockerfile: '' })
+const advancedForm = ref({ image: '', name: '', workingDir: '', env: [], ports: [], volumes: [], cmd: [], gpuEnabled: false, gpuMode: 'all', gpuCount: 1, gpuDevices: [] })
+const openCreate = () => {
+  createDialog.value = true
+  createMode.value = 'dockerfile'
+  dockerfileForm.value = { dockerfile: '' }
+  advancedForm.value = { image: '', name: '', workingDir: '', env: [], ports: [], volumes: [], cmd: [], gpuEnabled: false, gpuMode: 'all', gpuCount: 1, gpuDevices: [] }
+}
+const addEnv = () => { advancedForm.value.env.push('') }
+const removeEnv = (i) => { advancedForm.value.env.splice(i,1) }
+const addPort = () => { advancedForm.value.ports.push('') }
+const removePort = (i) => { advancedForm.value.ports.splice(i,1) }
+const addVolume = () => { advancedForm.value.volumes.push('') }
+const removeVolume = (i) => { advancedForm.value.volumes.splice(i,1) }
+const addCmd = () => { advancedForm.value.cmd.push('') }
+const removeCmd = (i) => { advancedForm.value.cmd.splice(i,1) }
 const submitCreate = async () => {
   if (!activeId.value) { ElMessage.error('未选择Endpoint'); return }
   try {
-    const res = await createContainer({ endpointId: activeId.value, image: createForm.value.image, name: createForm.value.name })
+    if (createMode.value === 'dockerfile') {
+      const res = await createContainerByDockerfile({ endpointId: activeId.value, dockerfile: dockerfileForm.value.dockerfile })
+      if (res.code === 0) { ElMessage.success('创建成功'); createDialog.value = false; fetchContainers() } else { ElMessage.error(res.msg || '创建失败') }
+      return
+    }
+    const payload = { endpointId: activeId.value, image: advancedForm.value.image, name: advancedForm.value.name, workingDir: advancedForm.value.workingDir, env: advancedForm.value.env.filter(x=>x), ports: advancedForm.value.ports.filter(x=>x), volumes: advancedForm.value.volumes.filter(x=>x), cmd: advancedForm.value.cmd.filter(x=>x), gpuEnabled: advancedForm.value.gpuEnabled, gpuMode: advancedForm.value.gpuMode, gpuCount: advancedForm.value.gpuCount, gpuDevices: advancedForm.value.gpuDevices.filter(x=>x) }
+    const res = await createContainerWithOptions(payload)
     if (res.code === 0) { ElMessage.success('创建成功'); createDialog.value = false; fetchContainers() } else { ElMessage.error(res.msg || '创建失败') }
   } catch (e) { ElMessage.error('创建失败') }
 }
@@ -242,6 +362,13 @@ const connectTerminal = (row) => {
     }
   })
   term.attachCustomKeyEventHandler((e) => {
+    if (e.key === 'Tab') {
+      e.preventDefault()
+      if (termSocket && termSocket.readyState === WebSocket.OPEN) {
+        try { termSocket.send('\t') } catch (err) {}
+      }
+      return false
+    }
     if (e.ctrlKey && e.key === 'c' && term.hasSelection()) {
       const text = term.getSelection()
       if (navigator.clipboard) navigator.clipboard.writeText(text)
@@ -291,6 +418,60 @@ const reconnectNow = () => { if (!currentRow) return; if (termSocket) { try { te
 onMounted(() => {
   fetchServers()
 })
+
+const logsDialog = ref(false)
+const logsRef = ref(null)
+let logsWs = null
+const logsText = ref('')
+const logsFollow = ref(true)
+const logsTail = ref(200)
+const logsTimestamps = ref(false)
+let currentLogRow = null
+const openLogs = (row) => {
+  if (!activeId.value) { ElMessage.error('未选择Endpoint'); return }
+  currentLogRow = row
+  logsDialog.value = true
+  nextTick(() => connectLogs(row))
+}
+const connectLogs = (row) => {
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws'
+  const base = (import.meta && import.meta.env && import.meta.env.VITE_BASE_API) ? import.meta.env.VITE_BASE_API : ''
+  const prefix = base.endsWith('/') ? base : (base ? base + '/' : '/')
+  const url = `${proto}://${location.host}${prefix}docker/logsWs?endpointId=${activeId.value}&ID=${row.ID}&stdout=true&stderr=true&follow=${logsFollow.value ? 'true' : 'false'}&tail=${logsTail.value}&timestamps=${logsTimestamps.value ? 'true' : 'false'}`
+  if (logsWs) { try { logsWs.close() } catch(e){} logsWs = null }
+  logsText.value = ''
+  logsWs = new WebSocket(url)
+  logsWs.onmessage = (ev) => {
+    let text = ''
+    if (typeof ev.data === 'string') { text = ev.data } else if (ev.data instanceof ArrayBuffer) { text = new TextDecoder().decode(new Uint8Array(ev.data)) } else { text = String(ev.data) }
+    logsText.value += text
+    if (logsFollow.value && logsRef.value) { logsRef.value.scrollTop = logsRef.value.scrollHeight }
+  }
+  logsWs.onclose = () => { ElMessage.info('日志连接已关闭') }
+  logsWs.onerror = () => { ElMessage.error('日志连接异常') }
+}
+const cleanupLogs = () => { if (logsWs) { try { logsWs.close() } catch(e){} logsWs = null } }
+const reconnectLogs = () => { if (currentLogRow) connectLogs(currentLogRow) }
+const clearLogs = () => { logsText.value = '' }
+onBeforeUnmount(() => cleanupLogs())
+watch(logsDialog, (v) => { if (!v) cleanupLogs() })
+
+const fetchInlineLogs = async (row) => {
+  if (!activeId.value) { ElMessage.error('未选择Endpoint'); return }
+  row.__tailLoading = true
+  try {
+    const res = await getDockerLogs({ endpointId: activeId.value, ID: row.ID, tail: row.__tailTail, stdout: true, stderr: true, follow: false })
+    row.__tailLoading = false
+    if (res.code === 0) {
+      row.__tailLogs = (res.data && res.data.text) ? res.data.text : ''
+    } else {
+      ElMessage.error(res.msg || '获取日志失败')
+    }
+  } catch (e) {
+    row.__tailLoading = false
+    ElMessage.error('获取日志失败')
+  }
+}
 </script>
 
 <style scoped>
@@ -306,4 +487,5 @@ onMounted(() => {
 .terminal { height: 540px; overflow: auto; background: #111; color: #eee; padding: 8px; font-family: monospace; white-space: pre-wrap; }
 .xterm { height: 100%; }
 .xterm-viewport { background: #111; }
+.logs { height: 540px; overflow: auto; background: #111; color: #eee; padding: 8px; font-family: monospace; white-space: pre-wrap; }
 </style>

@@ -213,6 +213,8 @@ func (i *initApi) InitializeData(ctx context.Context) (context.Context, error) {
 		{ApiGroup: "Docker", Method: "DELETE", Path: "/docker/deleteDockerEndpointByIds", Description: "批量删除Docker Endpoint"},
 		{ApiGroup: "Docker", Method: "PUT", Path: "/docker/updateDockerEndpoint", Description: "更新Docker Endpoint"},
 		{ApiGroup: "Docker", Method: "POST", Path: "/docker/createContainer", Description: "创建容器"},
+		{ApiGroup: "Docker", Method: "POST", Path: "/docker/createContainerByDockerfile", Description: "使用Dockerfile创建容器"},
+		{ApiGroup: "Docker", Method: "POST", Path: "/docker/createContainerWithOptions", Description: "参数化创建容器"},
 		{ApiGroup: "Docker", Method: "POST", Path: "/docker/startContainer", Description: "启动容器"},
 		{ApiGroup: "Docker", Method: "POST", Path: "/docker/stopContainer", Description: "停止容器"},
 		{ApiGroup: "Docker", Method: "DELETE", Path: "/docker/removeContainer", Description: "删除容器"},

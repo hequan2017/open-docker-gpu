@@ -3,8 +3,10 @@ package docker
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 
 	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/pkg/stdcopy"
 	"github.com/flipped-aurora/gin-vue-admin/server/global"
 	"github.com/flipped-aurora/gin-vue-admin/server/model/common/response"
 	"github.com/gin-gonic/gin"
@@ -18,6 +20,28 @@ type CreateContainerReq struct {
 	Name       string `json:"name" form:"name"`
 }
 
+type BuildContainerReq struct {
+	EndpointID string `json:"endpointId" form:"endpointId"`
+	Dockerfile string `json:"dockerfile" form:"dockerfile"`
+	Tag        string `json:"tag" form:"tag"`
+	Name       string `json:"name" form:"name"`
+}
+
+type CreateContainerWithOptionsReq struct {
+	EndpointID string   `json:"endpointId" form:"endpointId"`
+	Image      string   `json:"image" form:"image"`
+	Name       string   `json:"name" form:"name"`
+	WorkingDir string   `json:"workingDir" form:"workingDir"`
+	Env        []string `json:"env"`
+	Ports      []string `json:"ports"`
+	Volumes    []string `json:"volumes"`
+	Cmd        []string `json:"cmd"`
+	GpuEnabled bool     `json:"gpuEnabled"`
+	GpuMode    string   `json:"gpuMode"`
+	GpuCount   int      `json:"gpuCount"`
+	GpuDevices []string `json:"gpuDevices"`
+}
+
 func (a *DockerApi) CreateContainer(c *gin.Context) {
 	ctx := c.Request.Context()
 	var req CreateContainerReq
@@ -26,6 +50,53 @@ func (a *DockerApi) CreateContainer(c *gin.Context) {
 		return
 	}
 	id, err := dockerService.CreateContainer(ctx, req.EndpointID, req.Image, req.Name)
+	if err != nil {
+		global.GVA_LOG.Error("创建容器失败!", zap.Error(err))
+		response.FailWithMessage("创建容器失败:"+err.Error(), c)
+		return
+	}
+	response.OkWithData(gin.H{"id": id}, c)
+}
+
+func (a *DockerApi) BuildContainerByDockerfile(c *gin.Context) {
+	ctx := c.Request.Context()
+	var req BuildContainerReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.FailWithMessage(err.Error(), c)
+		return
+	}
+	id, err := dockerService.BuildContainerFromDockerfile(ctx, req.EndpointID, req.Dockerfile, req.Tag, req.Name)
+	if err != nil {
+		global.GVA_LOG.Error("创建容器失败!", zap.Error(err))
+		response.FailWithMessage("创建容器失败:"+err.Error(), c)
+		return
+	}
+	response.OkWithData(gin.H{"id": id}, c)
+}
+
+func (a *DockerApi) CreateContainerWithOptions(c *gin.Context) {
+	ctx := c.Request.Context()
+	var req CreateContainerWithOptionsReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.FailWithMessage(err.Error(), c)
+		return
+	}
+	var gpuEnabled bool
+	var gpuAll bool
+	var gpuCount int
+	var gpuDevices []string
+	if strings.ToLower(req.GpuMode) != "" && req.GpuEnabled {
+		gpuEnabled = true
+		switch strings.ToLower(req.GpuMode) {
+		case "all":
+			gpuAll = true
+		case "count":
+			gpuCount = req.GpuCount
+		case "devices":
+			gpuDevices = req.GpuDevices
+		}
+	}
+	id, err := dockerService.CreateContainerWithOptions(ctx, req.EndpointID, req.Image, req.Name, req.WorkingDir, req.Env, req.Ports, req.Volumes, req.Cmd, gpuEnabled, gpuAll, gpuCount, gpuDevices)
 	if err != nil {
 		global.GVA_LOG.Error("创建容器失败!", zap.Error(err))
 		response.FailWithMessage("创建容器失败:"+err.Error(), c)
@@ -69,6 +140,131 @@ func (a *DockerApi) RemoveContainer(c *gin.Context) {
 		return
 	}
 	response.Ok(c)
+}
+
+type wsWriter struct{ ws *websocket.Conn }
+
+func (w *wsWriter) Write(p []byte) (int, error) {
+	if err := w.ws.WriteMessage(websocket.TextMessage, p); err != nil {
+		return 0, err
+	}
+	return len(p), nil
+}
+
+func (a *DockerApi) ContainerLogsWs(c *gin.Context) {
+	ctx := c.Request.Context()
+	endpointID := c.Query("endpointId")
+	cid := c.Query("ID")
+	if endpointID == "" || cid == "" || endpointID == "undefined" {
+		response.FailWithMessage("参数错误", c)
+		return
+	}
+	upgrader := websocket.Upgrader{CheckOrigin: func(r *http.Request) bool { return true }}
+	ws, err := upgrader.Upgrade(c.Writer, c.Request, nil)
+	if err != nil {
+		return
+	}
+	cli, err := dockerService.GetClientByEndpointID(ctx, endpointID)
+	if err != nil {
+		ws.WriteMessage(websocket.TextMessage, []byte("连接Docker失败:"+err.Error()))
+		ws.Close()
+		return
+	}
+	stdout := c.DefaultQuery("stdout", "true") == "true"
+	stderr := c.DefaultQuery("stderr", "true") == "true"
+	follow := c.DefaultQuery("follow", "true") == "true"
+	tail := c.DefaultQuery("tail", "200")
+	since := c.DefaultQuery("since", "")
+	timestamps := c.DefaultQuery("timestamps", "false") == "true"
+	rc, err := cli.ContainerLogs(ctx, cid, container.LogsOptions{ShowStdout: stdout, ShowStderr: stderr, Follow: follow, Tail: tail, Since: since, Timestamps: timestamps})
+	if err != nil {
+		ws.WriteMessage(websocket.TextMessage, []byte("获取日志失败:"+err.Error()))
+		ws.Close()
+		return
+	}
+	defer rc.Close()
+	w := &wsWriter{ws: ws}
+	go func() {
+		_, _ = stdcopy.StdCopy(w, w, rc)
+		ws.WriteMessage(websocket.TextMessage, []byte("日志流结束"))
+		ws.Close()
+	}()
+	for {
+		_, _, e := ws.ReadMessage()
+		if e != nil {
+			break
+		}
+	}
+}
+
+// GetContainerLogs 获取容器尾部日志（HTTP一次性返回）
+// @Tags Docker
+// @Summary 获取容器尾部日志
+// @Security ApiKeyAuth
+// @Produce application/json
+// @Param endpointId query string true "服务器ID"
+// @Param ID query string true "容器ID"
+// @Param tail query string false "尾部行数，默认200"
+// @Param since query string false "开始时间"
+// @Param timestamps query bool false "是否包含时间戳"
+// @Param stdout query bool false "是否包含stdout"
+// @Param stderr query bool false "是否包含stderr"
+// @Router /docker/logs [get]
+func (a *DockerApi) GetContainerLogs(c *gin.Context) {
+	ctx := c.Request.Context()
+	endpointID := c.Query("endpointId")
+	cid := c.Query("ID")
+	if endpointID == "" || cid == "" || endpointID == "undefined" {
+		response.FailWithMessage("参数错误", c)
+		return
+	}
+	stdout := c.DefaultQuery("stdout", "true") == "true"
+	stderr := c.DefaultQuery("stderr", "true") == "true"
+	tail := c.DefaultQuery("tail", "200")
+	since := c.DefaultQuery("since", "")
+	timestamps := c.DefaultQuery("timestamps", "false") == "true"
+	cli, err := dockerService.GetClientByEndpointID(ctx, endpointID)
+	if err != nil {
+		response.FailWithMessage("连接Docker失败:"+err.Error(), c)
+		return
+	}
+	rc, err := cli.ContainerLogs(ctx, cid, container.LogsOptions{ShowStdout: stdout, ShowStderr: stderr, Follow: false, Tail: tail, Since: since, Timestamps: timestamps})
+	if err != nil {
+		response.FailWithMessage("获取日志失败:"+err.Error(), c)
+		return
+	}
+	defer rc.Close()
+	var bufStdout, bufStderr strings.Builder
+	_, _ = stdcopy.StdCopy(&bufStdout, &bufStderr, rc)
+	combined := bufStdout.String()
+	if bufStderr.Len() > 0 {
+		combined = combined + bufStderr.String()
+	}
+	response.OkWithData(gin.H{"text": combined}, c)
+}
+
+// PreferredShell 预检测容器内可用的交互Shell
+// @Tags Docker
+// @Summary 预检测容器内可用的交互Shell
+// @Security ApiKeyAuth
+// @Produce application/json
+// @Param endpointId query string true "服务器ID"
+// @Param ID query string true "容器ID"
+// @Router /docker/preferredShell [get]
+func (a *DockerApi) PreferredShell(c *gin.Context) {
+    ctx := c.Request.Context()
+    endpointID := c.Query("endpointId")
+    cid := c.Query("ID")
+    if endpointID == "" || cid == "" || endpointID == "undefined" {
+        response.FailWithMessage("参数错误", c)
+        return
+    }
+    shell, err := dockerService.DetectPreferredShell(ctx, endpointID, cid)
+    if err != nil {
+        response.FailWithMessage("检测失败:"+err.Error(), c)
+        return
+    }
+    response.OkWithData(gin.H{"shell": shell}, c)
 }
 
 // ContainerTerminalWs WebSocket 进入容器交互终端

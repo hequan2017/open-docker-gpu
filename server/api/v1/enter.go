@@ -1,6 +1,7 @@
 package v1
 
 import (
+	"github.com/flipped-aurora/gin-vue-admin/server/api/v1/asset"
 	"github.com/flipped-aurora/gin-vue-admin/server/api/v1/docker"
 	"github.com/flipped-aurora/gin-vue-admin/server/api/v1/example"
 	"github.com/flipped-aurora/gin-vue-admin/server/api/v1/ssh"
@@ -14,4 +15,5 @@ type ApiGroup struct {
 	ExampleApiGroup example.ApiGroup
 	DockerApiGroup  docker.ApiGroup
 	SshApiGroup     ssh.ApiGroup
+	AssetApiGroup   asset.ApiGroup
 }

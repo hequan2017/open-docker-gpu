@@ -1,6 +1,8 @@
 package docker
 
 import (
+	"archive/tar"
+	"bytes"
 	"context"
 	"crypto/tls"
 	"crypto/x509"
@@ -11,9 +13,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	imageTypes "github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/client"
+	"github.com/docker/go-connections/nat"
 	"github.com/flipped-aurora/gin-vue-admin/server/global"
 	dockermodel "github.com/flipped-aurora/gin-vue-admin/server/model/docker"
 )
@@ -37,6 +41,7 @@ type DockerPsRow struct {
 	Ports      string `json:"Ports"`
 	Names      string `json:"Names"`
 	Labels     string `json:"Labels"`
+	LogsWs     string `json:"LogsWs"`
 }
 
 // FetchDockerPs 通过Docker SDK获取容器列表（基于DockerEndpoint配置）
@@ -91,6 +96,7 @@ func (s *DockerService) FetchDockerPs(ctx context.Context, endpointID string, sc
 			Ports:      strings.Join(ports, ","),
 			Names:      names,
 			Labels:     strings.Join(labelPairs, ","),
+			LogsWs:     "/docker/logsWs?endpointId=" + endpointID + "&ID=" + c.ID,
 		}
 		rows = append(rows, row)
 	}
@@ -126,7 +132,7 @@ func (s *DockerService) getClientByEndpointID(ctx context.Context, endpointID st
 
 // GetClientByEndpointID 导出获取Docker客户端的方法，供API层复用
 func (s *DockerService) GetClientByEndpointID(ctx context.Context, endpointID string) (*client.Client, error) {
-    return s.getClientByEndpointID(ctx, endpointID)
+	return s.getClientByEndpointID(ctx, endpointID)
 }
 
 func (s *DockerService) CreateContainer(ctx context.Context, endpointID, image, name string) (id string, err error) {
@@ -170,6 +176,136 @@ func (s *DockerService) StopContainer(ctx context.Context, endpointID, cid strin
 	return
 }
 
+func (s *DockerService) BuildContainerFromDockerfile(ctx context.Context, endpointID, dockerfile, tag, name string) (id string, err error) {
+	cli, err := s.getClientByEndpointID(ctx, endpointID)
+	if err != nil {
+		return
+	}
+	if tag == "" {
+		tag = "dockerfile:latest"
+	}
+	buf := new(bytes.Buffer)
+	tw := tar.NewWriter(buf)
+	hdr := &tar.Header{Name: "Dockerfile", Mode: 0600, Size: int64(len(dockerfile))}
+	if e := tw.WriteHeader(hdr); e != nil {
+		err = e
+		tw.Close()
+		return
+	}
+	if _, e := tw.Write([]byte(dockerfile)); e != nil {
+		err = e
+		tw.Close()
+		return
+	}
+	if e := tw.Close(); e != nil {
+		err = e
+		return
+	}
+	buildResp, e := cli.ImageBuild(ctx, bytes.NewReader(buf.Bytes()), types.ImageBuildOptions{Dockerfile: "Dockerfile", Tags: []string{tag}})
+	if e != nil {
+		err = e
+		return
+	}
+	if buildResp.Body != nil {
+		io.Copy(io.Discard, buildResp.Body)
+		buildResp.Body.Close()
+	}
+	resp, e2 := cli.ContainerCreate(ctx, &container.Config{Image: tag}, &container.HostConfig{}, nil, nil, name)
+	if e2 != nil {
+		err = e2
+		return
+	}
+	if e3 := cli.ContainerStart(ctx, resp.ID, container.StartOptions{}); e3 != nil {
+		err = e3
+		return
+	}
+	id = resp.ID
+	return
+}
+
+func (s *DockerService) CreateContainerWithOptions(ctx context.Context, endpointID, image, name, workingDir string, env, ports, volumes, cmd []string, gpuEnabled bool, gpuAll bool, gpuCount int, gpuDevices []string) (id string, err error) {
+	cli, err := s.getClientByEndpointID(ctx, endpointID)
+	if err != nil {
+		return
+	}
+	if image == "" {
+		err = fmt.Errorf("镜像为空")
+		return
+	}
+	if rc, e := cli.ImagePull(ctx, image, imageTypes.PullOptions{}); e == nil && rc != nil {
+		io.Copy(io.Discard, rc)
+		rc.Close()
+	}
+	cfg := &container.Config{Image: image, Env: env, WorkingDir: workingDir}
+	if len(cmd) > 0 {
+		cfg.Cmd = cmd
+	}
+	exposed := nat.PortSet{}
+	bindings := nat.PortMap{}
+	for _, p := range ports {
+		if p == "" {
+			continue
+		}
+		proto := "tcp"
+		s2 := p
+		if strings.Contains(p, "/") {
+			parts := strings.SplitN(p, "/", 2)
+			s2 = parts[0]
+			proto = strings.ToLower(parts[1])
+		}
+		hp := ""
+		cp := ""
+		seg := strings.SplitN(s2, ":", 2)
+		if len(seg) == 2 {
+			hp = seg[0]
+			cp = seg[1]
+		} else {
+			cp = seg[0]
+		}
+		portKey, e := nat.NewPort(proto, cp)
+		if e != nil {
+			continue
+		}
+		exposed[portKey] = struct{}{}
+		if _, ok := bindings[portKey]; !ok {
+			bindings[portKey] = []nat.PortBinding{}
+		}
+		bindings[portKey] = append(bindings[portKey], nat.PortBinding{HostPort: hp})
+	}
+	if len(exposed) > 0 {
+		cfg.ExposedPorts = exposed
+	}
+	host := &container.HostConfig{}
+	if len(bindings) > 0 {
+		host.PortBindings = bindings
+	}
+	if len(volumes) > 0 {
+		host.Binds = volumes
+	}
+	if gpuEnabled {
+		dr := container.DeviceRequest{Capabilities: [][]string{{"gpu"}}}
+		if gpuAll {
+			dr.Count = -1
+		} else if len(gpuDevices) > 0 {
+			dr.DeviceIDs = gpuDevices
+		} else if gpuCount > 0 {
+			dr.Count = gpuCount
+		}
+		host.DeviceRequests = append(host.DeviceRequests, dr)
+	}
+	resp, e2 := cli.ContainerCreate(ctx, cfg, host, nil, nil, name)
+	if e2 != nil {
+		err = e2
+		return
+	}
+	if e3 := cli.ContainerStart(ctx, resp.ID, container.StartOptions{}); e3 != nil {
+		err = e3
+		return
+	}
+	id = resp.ID
+	return
+}
+
 func (s *DockerService) RemoveContainer(ctx context.Context, endpointID, cid string, force bool) (err error) {
 	cli, err := s.getClientByEndpointID(ctx, endpointID)
 	if err != nil {
@@ -177,4 +313,32 @@ func (s *DockerService) RemoveContainer(ctx context.Context, endpointID, cid str
 	}
 	err = cli.ContainerRemove(ctx, cid, container.RemoveOptions{Force: force, RemoveVolumes: true})
 	return
+}
+
+func (s *DockerService) tryExec(cli *client.Client, ctx context.Context, cid string, cmd []string) error {
+	execResp, err := cli.ContainerExecCreate(ctx, cid, container.ExecOptions{
+		AttachStdin:  false,
+		AttachStdout: false,
+		AttachStderr: false,
+		Tty:          true,
+		Cmd:          cmd,
+	})
+	if err != nil {
+		return err
+	}
+	return cli.ContainerExecStart(ctx, execResp.ID, container.ExecStartOptions{Tty: true})
+}
+
+func (s *DockerService) DetectPreferredShell(ctx context.Context, endpointID, cid string) (shell string, err error) {
+	cli, err := s.getClientByEndpointID(ctx, endpointID)
+	if err != nil {
+		return "", err
+	}
+	if e := s.tryExec(cli, ctx, cid, []string{"/bin/bash", "-lc", "echo ready"}); e == nil {
+		return "/bin/bash", nil
+	}
+	if e := s.tryExec(cli, ctx, cid, []string{"/bin/sh", "-lc", "echo ready"}); e == nil {
+		return "/bin/sh", nil
+	}
+	return "/bin/sh", nil
 }

@@ -14,6 +14,7 @@ func (r *DockerRouter) InitDockerRouter(Router *gin.RouterGroup, PublicRouter *g
 	{
 		groupWithoutRecord.GET("servers", dockerApi.GetNormalServers)
 		groupWithoutRecord.GET("ps", dockerApi.GetDockerPs)
+		groupWithoutRecord.GET("logs", dockerApi.GetContainerLogs)
 		groupWithoutRecord.GET("findDockerEndpoint", dockerEndpointApi.FindDockerEndpoint)
 		groupWithoutRecord.GET("getDockerEndpointList", dockerEndpointApi.GetDockerEndpointList)
 	}
@@ -21,6 +22,7 @@ func (r *DockerRouter) InitDockerRouter(Router *gin.RouterGroup, PublicRouter *g
 	groupPublic := PublicRouter.Group("docker")
 	{
 		groupPublic.GET("execWs", dockerApi.ContainerTerminalWs)
+		groupPublic.GET("logsWs", dockerApi.ContainerLogsWs)
 	}
 	// 写接口
 	group := Router.Group("docker").Use(middleware.OperationRecord())
@@ -30,6 +32,8 @@ func (r *DockerRouter) InitDockerRouter(Router *gin.RouterGroup, PublicRouter *g
 		group.DELETE("deleteDockerEndpointByIds", dockerEndpointApi.DeleteDockerEndpointByIds)
 		group.PUT("updateDockerEndpoint", dockerEndpointApi.UpdateDockerEndpoint)
 		group.POST("createContainer", dockerApi.CreateContainer)
+		group.POST("createContainerByDockerfile", dockerApi.BuildContainerByDockerfile)
+		group.POST("createContainerWithOptions", dockerApi.CreateContainerWithOptions)
 		group.POST("startContainer", dockerApi.StartContainer)
 		group.POST("stopContainer", dockerApi.StopContainer)
 		group.DELETE("removeContainer", dockerApi.RemoveContainer)
