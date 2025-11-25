@@ -14,6 +14,7 @@ func (r *DockerRouter) InitDockerRouter(Router *gin.RouterGroup, PublicRouter *g
 	{
 		groupWithoutRecord.GET("servers", dockerApi.GetNormalServers)
 		groupWithoutRecord.GET("ps", dockerApi.GetDockerPs)
+		groupWithoutRecord.GET("preferredShell", dockerApi.PreferredShell)
 		groupWithoutRecord.GET("logs", dockerApi.GetContainerLogs)
 		groupWithoutRecord.GET("findDockerEndpoint", dockerEndpointApi.FindDockerEndpoint)
 		groupWithoutRecord.GET("getDockerEndpointList", dockerEndpointApi.GetDockerEndpointList)
