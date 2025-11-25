@@ -108,3 +108,11 @@ export const getSshServerPublic = () => {
     method: 'get',
   })
 }
+
+export const getSshGpuInfo = (params) => {
+  return service({ url: '/ssh/gpuInfo', method: 'get', params })
+}
+
+export const getSshNvidiaSmiText = (params) => {
+  return service({ url: '/ssh/nvidiaSmiText', method: 'get', params })
+}

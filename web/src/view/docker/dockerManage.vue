@@ -26,6 +26,7 @@
                 <el-option label="所有的容器" value="all" />
               </el-select>
               <el-button type="primary" size="small" :disabled="!activeId" @click="openCreate">新建容器</el-button>
+              <el-button type="success" size="small" :disabled="!activeId" @click="openNodeCreate">创建节点</el-button>
               <el-button size="small" :disabled="!activeId" @click="fetchContainers">刷新</el-button>
             </div>
           </div>
@@ -176,6 +177,107 @@
         <el-button size="small" @click="terminalDialog=false">关闭</el-button>
       </template>
     </el-dialog>
+    <el-dialog v-model="nodeDialog" title="创建节点" width="980px">
+      <el-steps :active="nodeStep" finish-status="success" align-center style="margin-bottom:12px">
+        <el-step title="选择镜像" />
+        <el-step title="选择GPU" />
+        <el-step title="选择服务器" />
+        <el-step title="容器参数" />
+      </el-steps>
+      <div v-if="nodeStep===0">
+        <div style="display:flex; gap:8px; align-items:center; margin-bottom:8px">
+          <span>Endpoint:</span>
+          <el-tag v-if="activeId">{{ activeId }}</el-tag>
+          <el-button size="small" @click="reloadImages">刷新镜像</el-button>
+        </div>
+        <el-select v-model="nodeForm.image" filterable placeholder="选择本地镜像或输入仓库镜像" style="width:100%">
+          <el-option v-for="im in imageOptions" :key="im.id+im.tag" :label="im.tag" :value="im.tag" />
+        </el-select>
+        <div style="margin-top:8px">也可直接输入：如 `nvcr.io/nvidia/pytorch:24.10`</div>
+      </div>
+      <div v-else-if="nodeStep===1">
+        <el-form label-width="120px">
+          <el-form-item label="启用GPU"><el-switch v-model="nodeForm.gpuEnabled" /></el-form-item>
+          <template v-if="nodeForm.gpuEnabled">
+            <el-form-item label="GPU模式">
+              <el-select v-model="nodeForm.gpuMode" placeholder="选择模式" style="width: 200px">
+                <el-option label="全部GPU" value="all" />
+                <el-option label="按数量" value="count" />
+                <el-option label="指定设备" value="devices" />
+              </el-select>
+            </el-form-item>
+            <el-form-item label="数量" v-if="nodeForm.gpuMode==='count'">
+              <el-input-number v-model="nodeForm.gpuCount" :min="1" />
+            </el-form-item>
+            <el-form-item label="设备IDs" v-if="nodeForm.gpuMode==='devices'">
+              <div>
+                <div v-for="(v,i) in nodeForm.gpuDevices" :key="i" style="display:flex; gap:8px; margin-bottom:8px">
+                  <el-input v-model="nodeForm.gpuDevices[i]" placeholder="如：0 或 GPU-UUID" />
+                  <el-button @click="removeNodeGpuDevice(i)" type="danger" size="small">删除</el-button>
+                </div>
+                <el-button @click="addNodeGpuDevice" size="small">添加设备</el-button>
+              </div>
+            </el-form-item>
+          </template>
+        </el-form>
+      </div>
+      <div v-else-if="nodeStep===2">
+        <div style="display:flex; gap:8px; align-items:center; margin-bottom:8px">
+          <el-input v-model="assetFilter.region" placeholder="地区筛选" style="width:180px" />
+          <el-input-number v-model="assetFilter.gpuMin" :min="0" :max="64" />
+          <span>GPU最小数量</span>
+          <el-button size="small" @click="reloadAssets">筛选</el-button>
+        </div>
+        <el-table :data="serverAssets" height="360" @row-click="onPickAsset" highlight-current-row>
+          <el-table-column prop="label" label="主机" width="160" />
+          <el-table-column prop="gpuCount" label="GPU数量" width="100" />
+          <el-table-column prop="cpuCores" label="CPU核" width="100" />
+          <el-table-column prop="memoryGB" label="内存GB" width="100" />
+          <el-table-column prop="diskGB" label="磁盘GB" width="100" />
+          <el-table-column prop="region" label="地区" width="120" />
+          <el-table-column prop="status" label="状态" width="100" />
+        </el-table>
+        <div style="margin-top:8px">已选服务器：<span v-if="pickedAsset">{{ pickedAsset.label }} (GPU: {{ pickedAsset.gpuCount || 0 }})</span><span v-else>未选择</span></div>
+      </div>
+      <div v-else>
+        <el-form label-width="120px">
+          <el-form-item label="容器名称"><el-input v-model="nodeForm.name" placeholder="可空" /></el-form-item>
+          <el-form-item label="工作目录"><el-input v-model="nodeForm.workingDir" placeholder="如：/workspace" /></el-form-item>
+          <el-form-item label="端口映射">
+            <div>
+              <div v-for="(v,i) in nodeForm.ports" :key="i" style="display:flex; gap:8px; margin-bottom:8px">
+                <el-input v-model="nodeForm.ports[i]" placeholder="host:container或host:container/tcp" />
+                <el-button @click="removeNodePort(i)" type="danger" size="small">删除</el-button>
+              </div>
+              <el-button @click="addNodePort" size="small">添加</el-button>
+            </div>
+          </el-form-item>
+          <el-form-item label="卷映射">
+            <div>
+              <div v-for="(v,i) in nodeForm.volumes" :key="i" style="display:flex; gap:8px; margin-bottom:8px">
+                <el-input v-model="nodeForm.volumes[i]" placeholder="host:container或host:container:ro" />
+                <el-button @click="removeNodeVolume(i)" type="danger" size="small">删除</el-button>
+              </div>
+              <el-button @click="addNodeVolume" size="small">添加</el-button>
+            </div>
+          </el-form-item>
+          <el-form-item label="环境变量">
+            <div>
+              <div v-for="(v,i) in nodeForm.env" :key="i" style="display:flex; gap:8px; margin-bottom:8px">
+                <el-input v-model="nodeForm.env[i]" placeholder="KEY=VALUE" />
+                <el-button @click="removeNodeEnv(i)" type="danger" size="small">删除</el-button>
+              </div>
+              <el-button @click="addNodeEnv" size="small">添加</el-button>
+            </div>
+          </el-form-item>
+        </el-form>
+      </div>
+      <template #footer>
+        <el-button v-if="nodeStep>0" @click="nodeStep -= 1">上一步</el-button>
+        <el-button v-if="nodeStep<3" type="primary" @click="nodeStep += 1">下一步</el-button>
+        <el-button v-else type="success" @click="submitNodeCreate">立即创建</el-button>
+      </template>
+    </el-dialog>
     <el-dialog v-model="logsDialog" title="容器实时日志" width="900px" @close="cleanupLogs">
       <div style="display:flex;gap:8px;margin-bottom:8px;align-items:center">
         <el-checkbox v-model="logsFollow">跟随</el-checkbox>
@@ -200,7 +302,7 @@ import { FitAddon } from 'xterm-addon-fit'
 import { WebLinksAddon } from 'xterm-addon-web-links'
 import 'xterm/css/xterm.css'
 import { ElMessage } from 'element-plus'
-import { getDockerServers, getDockerPs, startContainer, stopContainer, removeContainer, createContainerByDockerfile, createContainerWithOptions, getDockerLogs } from '@/api/docker/docker'
+import { getDockerServers, getDockerPs, startContainer, stopContainer, removeContainer, createContainerByDockerfile, createContainerWithOptions, getDockerLogs, getPreferredShell, getDockerImages, getServerAssetList, getServerAssetDataSource } from '@/api/docker/docker'
 
 const servers = ref([])
 const activeId = ref('')
@@ -301,14 +403,23 @@ let termSocket = null
 let term = null
 let fitAddon = null
 let heartbeatTimer = null
-let reconnectTimer = null
-let reconnectAttempts = 0
+let retryCount = 0
+let fallbackTried = false
 let currentRow = null
 const shellChoice = ref('/bin/sh')
 const sizePreset = ref('fit')
-const openTerminal = (row) => {
+const detectPreferredShell = async (row) => {
+  try {
+    const res = await getPreferredShell({ endpointId: activeId.value, ID: row.ID })
+    if (res.code === 0 && res.data && res.data.shell) {
+      shellChoice.value = res.data.shell
+    }
+  } catch (e) { /* 失败保持默认 /bin/sh */ }
+}
+const openTerminal = async (row) => {
   if (!activeId.value) { ElMessage.error('未选择Endpoint'); return }
   currentRow = row
+  await detectPreferredShell(row)
   terminalDialog.value = true
   nextTick(() => connectTerminal(row))
 }
@@ -339,13 +450,34 @@ const connectTerminal = (row) => {
     fitAddon.fit()
     sendResize()
     term.focus()
-    term.write('\r\n连接已建立\r\n')
+    term.write(`\r\n连接已建立，当前Shell: ${shellChoice.value}\r\n`)
+    ElMessage.info(`当前Shell: ${shellChoice.value}`)
     startHeartbeat()
-    reconnectAttempts = 0
+    retryCount = 0
+    fallbackTried = false
   }
   termSocket.onmessage = (ev) => {
     if (typeof ev.data === 'string') {
-      term.write(ev.data)
+      const txt = ev.data
+      term.write(txt)
+      if (txt.indexOf('创建终端失败:') !== -1 || txt.indexOf('连接终端失败:') !== -1 || txt.indexOf('启动终端失败:') !== -1) {
+        if (shellChoice.value !== '/bin/sh') {
+          shellChoice.value = '/bin/sh'
+          ElMessage.warning('终端错误，自动切换到 /bin/sh 并重连')
+          reconnectNow()
+          return
+        }
+      }
+      if (txt.indexOf('OCI runtime exec failed') !== -1 && txt.indexOf('/bin/bash') !== -1) {
+        shellChoice.value = '/bin/sh'
+        ElMessage.warning('容器不含 /bin/bash，自动切换到 /bin/sh 并重连')
+        reconnectNow()
+        return
+      }
+      if (txt.indexOf('已自动切换到 /bin/sh') !== -1) {
+        shellChoice.value = '/bin/sh'
+        ElMessage.info('已自动切换到 /bin/sh')
+      }
     } else if (ev.data instanceof ArrayBuffer) {
       term.write(new Uint8Array(ev.data))
     } else {
@@ -354,8 +486,8 @@ const connectTerminal = (row) => {
       reader.readAsText(ev.data)
     }
   }
-  termSocket.onclose = () => { ElMessage.info('终端已关闭'); scheduleReconnect() }
-  termSocket.onerror = () => { ElMessage.error('终端连接异常'); scheduleReconnect() }
+  termSocket.onclose = () => { handleTermFailure('close') }
+  termSocket.onerror = () => { handleTermFailure('error') }
   term.onData((data) => {
     if (termSocket && termSocket.readyState === WebSocket.OPEN) {
       termSocket.send(data)
@@ -388,8 +520,16 @@ const sendResize = () => {
 const cleanupTerminal = () => {
   window.removeEventListener('resize', onWindowResize)
   stopHeartbeat()
-  stopReconnect()
-  if (termSocket) { try { termSocket.close() } catch(e){} termSocket = null }
+  if (termSocket) {
+    try {
+      termSocket.onopen = null
+      termSocket.onmessage = null
+      termSocket.onclose = null
+      termSocket.onerror = null
+      termSocket.close()
+    } catch(e){}
+    termSocket = null
+  }
   if (term) { try { term.dispose() } catch(e){} term = null }
   fitAddon = null
 }
@@ -408,12 +548,32 @@ const applySizePreset = () => {
   sendResize()
 }
 watch(sizePreset, () => applySizePreset())
-watch(shellChoice, () => { if (terminalDialog.value && currentRow) { reconnectNow() } })
+watch(shellChoice, () => { if (terminalDialog.value && currentRow) { ElMessage.info(`切换Shell为 ${shellChoice.value}`); reconnectNow() } })
 const startHeartbeat = () => { stopHeartbeat(); heartbeatTimer = setInterval(() => { if (termSocket && termSocket.readyState === WebSocket.OPEN) { termSocket.send(JSON.stringify({ type: 'ping' })) } }, 20000) }
 const stopHeartbeat = () => { if (heartbeatTimer) { clearInterval(heartbeatTimer); heartbeatTimer = null } }
-const scheduleReconnect = () => { if (!terminalDialog.value) return; stopReconnect(); const delay = Math.min(1000 * Math.pow(2, reconnectAttempts || 0), 10000); reconnectAttempts = (reconnectAttempts || 0) + 1; reconnectTimer = setTimeout(() => { reconnectNow() }, delay) }
-const stopReconnect = () => { if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null } }
-const reconnectNow = () => { if (!currentRow) return; if (termSocket) { try { termSocket.close() } catch(e){} termSocket = null } connectTerminal(currentRow) }
+const handleTermFailure = (reason) => {
+  if (!terminalDialog.value || !currentRow) return
+  cleanupTerminal()
+  if (shellChoice.value !== '/bin/sh' && !fallbackTried) {
+    fallbackTried = true
+    ElMessage.warning('连接失败，自动切换到 /bin/sh 并重连')
+    shellChoice.value = '/bin/sh'
+    connectTerminal(currentRow)
+    return
+  }
+  if (retryCount < 3) {
+    retryCount += 1
+    setTimeout(() => connectTerminal(currentRow), 1000)
+  } else {
+    ElMessage.error('终端连接失败，请检查容器 Shell')
+  }
+}
+const reconnectNow = async () => {
+  if (!currentRow) return
+  // 完整清理，避免多实例叠加导致看起来未切换
+  cleanupTerminal()
+  connectTerminal(currentRow)
+}
 
 onMounted(() => {
   fetchServers()
@@ -471,6 +631,87 @@ const fetchInlineLogs = async (row) => {
     row.__tailLoading = false
     ElMessage.error('获取日志失败')
   }
+}
+
+// 创建节点
+const nodeDialog = ref(false)
+const nodeStep = ref(0)
+const nodeForm = ref({ image: '', name: '', workingDir: '', env: [], ports: [], volumes: [], gpuEnabled: true, gpuMode: 'count', gpuCount: 1, gpuDevices: [] })
+const imageOptions = ref([])
+const serverAssets = ref([])
+const pickedAsset = ref(null)
+const assetFilter = ref({ region: '', gpuMin: 0 })
+const openNodeCreate = () => {
+  if (!activeId.value) { ElMessage.error('未选择Endpoint'); return }
+  nodeDialog.value = true
+  nodeStep.value = 0
+  nodeForm.value = { image: '', name: '', workingDir: '', env: [], ports: [], volumes: [], gpuEnabled: true, gpuMode: 'count', gpuCount: 1, gpuDevices: [] }
+  imageOptions.value = []
+  pickedAsset.value = null
+  reloadImages()
+  reloadAssets()
+}
+const reloadImages = async () => {
+  if (!activeId.value) return
+  try {
+    const res = await getDockerImages({ endpointId: activeId.value })
+    if (res.code === 0) {
+      const arr = (res.data || [])
+      const opts = []
+      arr.forEach(it => {
+        (it.tags || []).forEach(tag => { opts.push({ id: it.id, tag }) })
+      })
+      imageOptions.value = opts
+    }
+  } catch (e) {}
+}
+const reloadAssets = async () => {
+  try {
+    const res = await getServerAssetList({ page: 1, pageSize: 100, endpointId: Number(activeId.value) || undefined, sort: 'gpu_count', order: 'descending' })
+    if (res.code === 0 && res.data && Array.isArray(res.data.List)) {
+      let list = res.data.List
+      if (assetFilter.value.region) { list = list.filter(x => (x.region || '').includes(assetFilter.value.region)) }
+      if (assetFilter.value.gpuMin>0) { list = list.filter(x => (x.gpuCount || 0) >= assetFilter.value.gpuMin) }
+      serverAssets.value = list
+    }
+  } catch (e) {}
+}
+const onPickAsset = (row) => { pickedAsset.value = row }
+const addNodeEnv = () => { nodeForm.value.env.push('') }
+const removeNodeEnv = (i) => { nodeForm.value.env.splice(i,1) }
+const addNodePort = () => { nodeForm.value.ports.push('') }
+const removeNodePort = (i) => { nodeForm.value.ports.splice(i,1) }
+const addNodeVolume = () => { nodeForm.value.volumes.push('') }
+const removeNodeVolume = (i) => { nodeForm.value.volumes.splice(i,1) }
+const addNodeGpuDevice = () => { nodeForm.value.gpuDevices.push('') }
+const removeNodeGpuDevice = (i) => { nodeForm.value.gpuDevices.splice(i,1) }
+const submitNodeCreate = async () => {
+  if (!activeId.value) { ElMessage.error('未选择Endpoint'); return }
+  if (!nodeForm.value.image) { ElMessage.error('请选择或输入镜像'); nodeStep.value = 0; return }
+  if (pickedAsset.value && nodeForm.value.gpuMode==='count') {
+    const max = Number(pickedAsset.value.gpuCount || 0)
+    if (nodeForm.value.gpuCount > max) { ElMessage.error(`所选服务器GPU不足(可用≈${max})`); nodeStep.value = 2; return }
+  }
+  const gpuEnabled = !!nodeForm.value.gpuEnabled
+  const gpuMode = nodeForm.value.gpuMode
+  const payload = {
+    endpointId: activeId.value,
+    image: nodeForm.value.image,
+    name: nodeForm.value.name,
+    workingDir: nodeForm.value.workingDir,
+    env: nodeForm.value.env.filter(x=>x),
+    ports: nodeForm.value.ports.filter(x=>x),
+    volumes: nodeForm.value.volumes.filter(x=>x),
+    cmd: [],
+    gpuEnabled,
+    gpuMode,
+    gpuCount: gpuMode==='count' ? Number(nodeForm.value.gpuCount||0) : 0,
+    gpuDevices: gpuMode==='devices' ? nodeForm.value.gpuDevices.filter(x=>x) : [],
+  }
+  try {
+    const res = await createContainerWithOptions(payload)
+    if (res.code === 0) { ElMessage.success('创建成功'); nodeDialog.value = false; fetchContainers() } else { ElMessage.error(res.msg || '创建失败') }
+  } catch (e) { ElMessage.error('创建失败') }
 }
 </script>
 

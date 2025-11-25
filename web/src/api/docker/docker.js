@@ -37,3 +37,19 @@ export const removeContainer = (params) => {
 export const getDockerLogs = (params) => {
   return service({ url: '/docker/logs', method: 'get', params })
 }
+
+export const getPreferredShell = (params) => {
+  return service({ url: '/docker/preferredShell', method: 'get', params })
+}
+
+export const getDockerImages = (params) => {
+  return service({ url: '/docker/images', method: 'get', params })
+}
+
+export const getServerAssetList = (params) => {
+  return service({ url: '/SrvAst/getServerAssetList', method: 'get', params })
+}
+
+export const getServerAssetDataSource = () => {
+  return service({ url: '/SrvAst/getServerAssetDataSource', method: 'get' })
+}

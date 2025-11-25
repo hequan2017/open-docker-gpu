@@ -70,9 +70,23 @@
         tooltip-effect="dark"
         :data="tableData"
         row-key="ID"
+        @expand-change="onExpandChange"
         @selection-change="handleSelectionChange"
         @sort-change="sortChange"
         >
+        <el-table-column type="expand">
+          <template #default="scope">
+            <div style="margin-bottom:8px; display:flex; gap:8px; align-items:center">
+              <span>nvidia-smi 尾部</span>
+              <el-input-number v-model="scope.row.__nvsmiTail" :min="10" :max="2000" />
+              <el-switch v-model="scope.row.__nvsmiAuto" active-text="自动刷新" />
+              <el-input-number v-model="scope.row.__nvsmiInterval" :min="2" :max="120" />
+              <span>秒</span>
+              <el-button size="small" :loading="scope.row.__nvsmiLoading" @click="refreshNvsmi(scope.row)">刷新</el-button>
+            </div>
+            <div class="logbox"><pre>{{ scope.row.__nvsmiText || '暂无输出' }}</pre></div>
+          </template>
+        </el-table-column>
         <el-table-column type="selection" width="55" />
         
         <el-table-column sortable align="left" label="日期" prop="CreatedAt" width="180">
@@ -177,7 +191,8 @@ import {
   deleteSshServerByIds,
   updateSshServer,
   findSshServer,
-  getSshServerList
+  getSshServerList,
+  getSshNvidiaSmiText
 } from '@/api/ssh/sshServer'
 
 // 全量引入格式化工具 请按需保留
@@ -320,6 +335,15 @@ const getTableData = async() => {
     total.value = table.data.total
     page.value = table.data.page
     pageSize.value = table.data.pageSize
+    // 初始化扩展字段
+    tableData.value.forEach(row => {
+      row.__nvsmiText = ''
+      row.__nvsmiLoading = false
+      row.__nvsmiTail = 50
+      row.__nvsmiAuto = false
+      row.__nvsmiInterval = 5
+      row.__nvsmiTimer = null
+    })
   }
 }
 
@@ -496,8 +520,45 @@ const closeDetailShow = () => {
 }
 
 
+// 展开事件与自动刷新
+const onExpandChange = (row, expandedRows) => {
+  const expanded = expandedRows.some(r => r.ID === row.ID)
+  if (expanded) {
+    refreshNvsmi(row)
+    setupAuto(row)
+  } else {
+    teardownAuto(row)
+  }
+}
+const refreshNvsmi = async (row) => {
+  row.__nvsmiLoading = true
+  try {
+    const res = await getSshNvidiaSmiText({ ID: row.ID, tail: row.__nvsmiTail })
+    row.__nvsmiLoading = false
+    if (res.code === 0) {
+      row.__nvsmiText = (res.data && res.data.text) ? res.data.text : ''
+    } else {
+      ElMessage.error(res.msg || '获取失败')
+    }
+  } catch (e) {
+    row.__nvsmiLoading = false
+    ElMessage.error('获取失败')
+  }
+}
+const setupAuto = (row) => {
+  teardownAuto(row)
+  if (row.__nvsmiAuto) {
+    const interval = Math.max(2, Math.min(120, Number(row.__nvsmiInterval || 5)))
+    row.__nvsmiTimer = setInterval(() => refreshNvsmi(row), interval * 1000)
+  }
+}
+const teardownAuto = (row) => {
+  if (row.__nvsmiTimer) { clearInterval(row.__nvsmiTimer); row.__nvsmiTimer = null }
+}
+
 </script>
 
-<style>
-
+<style scoped>
+.logbox { white-space: pre-wrap; background: #111; color: #d5d5d5; padding: 8px; border-radius: 4px; font-size: 12px; line-height: 1.4; }
 </style>
+

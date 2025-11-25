@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/docker/docker/api/types/container"
+	imageTypes "github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/pkg/stdcopy"
 	"github.com/flipped-aurora/gin-vue-admin/server/global"
 	"github.com/flipped-aurora/gin-vue-admin/server/model/common/response"
@@ -243,6 +244,43 @@ func (a *DockerApi) GetContainerLogs(c *gin.Context) {
 	response.OkWithData(gin.H{"text": combined}, c)
 }
 
+// GetDockerImages 获取Docker镜像列表
+// @Tags Docker
+// @Summary 获取镜像列表
+// @Security ApiKeyAuth
+// @Produce application/json
+// @Param endpointId query string true "服务器ID"
+// @Router /docker/images [get]
+func (a *DockerApi) GetDockerImages(c *gin.Context) {
+	ctx := c.Request.Context()
+	endpointID := c.Query("endpointId")
+	if endpointID == "" || endpointID == "undefined" {
+		response.FailWithMessage("参数错误", c)
+		return
+	}
+	cli, err := dockerService.GetClientByEndpointID(ctx, endpointID)
+	if err != nil {
+		response.FailWithMessage("连接Docker失败:"+err.Error(), c)
+		return
+	}
+	list, e := cli.ImageList(ctx, imageTypes.ListOptions{})
+	if e != nil {
+		response.FailWithMessage("获取镜像失败:"+e.Error(), c)
+		return
+	}
+	type item struct {
+		ID    string   `json:"id"`
+		Tags  []string `json:"tags"`
+		Size  int64    `json:"size"`
+		DSize int64    `json:"dsize"`
+	}
+	var out []item
+	for _, im := range list {
+		out = append(out, item{ID: im.ID, Tags: im.RepoTags, Size: im.Size, DSize: im.SharedSize})
+	}
+	response.OkWithData(out, c)
+}
+
 // PreferredShell 预检测容器内可用的交互Shell
 // @Tags Docker
 // @Summary 预检测容器内可用的交互Shell
@@ -252,19 +290,19 @@ func (a *DockerApi) GetContainerLogs(c *gin.Context) {
 // @Param ID query string true "容器ID"
 // @Router /docker/preferredShell [get]
 func (a *DockerApi) PreferredShell(c *gin.Context) {
-    ctx := c.Request.Context()
-    endpointID := c.Query("endpointId")
-    cid := c.Query("ID")
-    if endpointID == "" || cid == "" || endpointID == "undefined" {
-        response.FailWithMessage("参数错误", c)
-        return
-    }
-    shell, err := dockerService.DetectPreferredShell(ctx, endpointID, cid)
-    if err != nil {
-        response.FailWithMessage("检测失败:"+err.Error(), c)
-        return
-    }
-    response.OkWithData(gin.H{"shell": shell}, c)
+	ctx := c.Request.Context()
+	endpointID := c.Query("endpointId")
+	cid := c.Query("ID")
+	if endpointID == "" || cid == "" || endpointID == "undefined" {
+		response.FailWithMessage("参数错误", c)
+		return
+	}
+	shell, err := dockerService.DetectPreferredShell(ctx, endpointID, cid)
+	if err != nil {
+		response.FailWithMessage("检测失败:"+err.Error(), c)
+		return
+	}
+	response.OkWithData(gin.H{"shell": shell}, c)
 }
 
 // ContainerTerminalWs WebSocket 进入容器交互终端
@@ -303,15 +341,51 @@ func (a *DockerApi) ContainerTerminalWs(c *gin.Context) {
 		Cmd:          []string{shell},
 	})
 	if err != nil {
-		ws.WriteMessage(websocket.TextMessage, []byte("创建终端失败:"+err.Error()))
-		ws.Close()
-		return
+		if shell != "/bin/sh" {
+			execResp2, err2 := cli.ContainerExecCreate(ctx, cid, container.ExecOptions{
+				AttachStdin:  true,
+				AttachStdout: true,
+				AttachStderr: true,
+				Tty:          true,
+				Cmd:          []string{"/bin/sh"},
+			})
+			if err2 == nil {
+				_ = ws.WriteMessage(websocket.TextMessage, []byte("已自动切换到 /bin/sh"))
+				execResp = execResp2
+				shell = "/bin/sh"
+			} else {
+				ws.WriteMessage(websocket.TextMessage, []byte("创建终端失败:"+err.Error()))
+				ws.Close()
+				return
+			}
+		} else {
+			ws.WriteMessage(websocket.TextMessage, []byte("创建终端失败:"+err.Error()))
+			ws.Close()
+			return
+		}
 	}
 	attach, err := cli.ContainerExecAttach(ctx, execResp.ID, container.ExecAttachOptions{Tty: true})
 	if err != nil {
-		ws.WriteMessage(websocket.TextMessage, []byte("连接终端失败:"+err.Error()))
-		ws.Close()
-		return
+		if shell != "/bin/sh" {
+			execResp2, err2 := cli.ContainerExecCreate(ctx, cid, container.ExecOptions{
+				AttachStdin:  true,
+				AttachStdout: true,
+				AttachStderr: true,
+				Tty:          true,
+				Cmd:          []string{"/bin/sh"},
+			})
+			if err2 == nil {
+				_ = ws.WriteMessage(websocket.TextMessage, []byte("已自动切换到 /bin/sh"))
+				execResp = execResp2
+				shell = "/bin/sh"
+				attach, err = cli.ContainerExecAttach(ctx, execResp.ID, container.ExecAttachOptions{Tty: true})
+			}
+		}
+		if err != nil {
+			ws.WriteMessage(websocket.TextMessage, []byte("连接终端失败:"+err.Error()))
+			ws.Close()
+			return
+		}
 	}
 	defer attach.Close()
 	_ = cli.ContainerExecStart(ctx, execResp.ID, container.ExecStartOptions{Tty: true})

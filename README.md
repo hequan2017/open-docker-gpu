@@ -26,12 +26,18 @@
   - `PUT /ssh/updateSshServer` 更新
   - `GET /ssh/findSshServer?ID=<id>` 查询单条
   - `GET /ssh/getSshServerList?page=<n>&pageSize=<m>&ip=<like>&label=<like>&region=<like>&status=正常` 列表
+  - `GET /ssh/gpuInfo?ID=<id>` 获取 GPU 信息
+  - `GET /ssh/nvidiaSmiText?ID=<id>&tail=<n>` 获取 `nvidia-smi` 文本摘要（尾部 n 行）
 - 前端：
   - 菜单：Linux SSH 管理（路由 `ssh`）
   - 列表列：IP（宽度 200）、端口、账号、服务器标签名、服务器地区、状态
   - 表单默认值：`port=22`、`username='root'`
   - 密码输入：编辑窗口显示且字符隐藏（`type=password`）
   - 状态：表单只读显示后端检测结果
+  - 交互与查询时机：
+    - 首次进入页面：自动加载并仅展示列表基础数据（轻量）
+    - 点击“查询”、分页、排序、重置：触发列表刷新（查询）
+    - 展开行与详情：点击后按需请求；展开行支持 `nvidia-smi` 文本预览、手动刷新与自动刷新（可设置间隔与尾部行数）
 - 示例（创建）：
   - 请求体：`{"ip":"192.168.1.10","port":22,"username":"root","password":"your_password","label":"生产A","region":"杭州"}`
 
