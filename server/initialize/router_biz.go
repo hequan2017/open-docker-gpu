@@ -25,4 +25,8 @@ func initBizRouter(routers ...*gin.RouterGroup) {
 		assetRouter := router.RouterGroupApp.Asset
 		assetRouter.InitServerAssetRouter(privateGroup, publicGroup)
 	}
+	{
+		billingRouter := router.RouterGroupApp.Billing
+		billingRouter.InitBillingGpuRouter(privateGroup, publicGroup)
+	}
 }

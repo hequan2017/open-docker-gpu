@@ -4,6 +4,7 @@ import (
 	"github.com/flipped-aurora/gin-vue-admin/server/service/asset"
 	"github.com/flipped-aurora/gin-vue-admin/server/service/docker"
 	"github.com/flipped-aurora/gin-vue-admin/server/service/example"
+	"github.com/flipped-aurora/gin-vue-admin/server/service/meter"
 	"github.com/flipped-aurora/gin-vue-admin/server/service/ssh"
 	"github.com/flipped-aurora/gin-vue-admin/server/service/system"
 )
@@ -16,4 +17,5 @@ type ServiceGroup struct {
 	SshServiceGroup     ssh.ServiceGroup
 	DockerServiceGroup  docker.ServiceGroup
 	AssetServiceGroup   asset.ServiceGroup
+	MeterServiceGroup   meter.ServiceGroup
 }

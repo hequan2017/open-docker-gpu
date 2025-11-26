@@ -1,7 +1,10 @@
 package initialize
 
 import (
+	"context"
 	"fmt"
+
+	"github.com/flipped-aurora/gin-vue-admin/server/service/meter"
 	"github.com/flipped-aurora/gin-vue-admin/server/task"
 
 	"github.com/robfig/cron/v3"
@@ -33,5 +36,14 @@ func Timer() {
 		//if err != nil {
 		//	fmt.Println("add timer error:", err)
 		//}
+
+		// GPU 使用率采集（每分钟）
+		_, err2 := global.GVA_Timer.AddTaskByFuncWithSecond("GpuBilling", "0 */1 * * * *", func() {
+			var m meter.GpuMeterService
+			_ = m.CollectAllEndpoints(context.Background())
+		}, "GPU使用率采集", option...)
+		if err2 != nil {
+			fmt.Println("add timer error:", err2)
+		}
 	}()
 }

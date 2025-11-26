@@ -2,6 +2,7 @@ package router
 
 import (
 	"github.com/flipped-aurora/gin-vue-admin/server/router/asset"
+	"github.com/flipped-aurora/gin-vue-admin/server/router/billing"
 	"github.com/flipped-aurora/gin-vue-admin/server/router/docker"
 	"github.com/flipped-aurora/gin-vue-admin/server/router/example"
 	"github.com/flipped-aurora/gin-vue-admin/server/router/ssh"
@@ -16,4 +17,5 @@ type RouterGroup struct {
 	Docker  docker.RouterGroup
 	Ssh     ssh.RouterGroup
 	Asset   asset.RouterGroup
+	Billing billing.RouterGroup
 }

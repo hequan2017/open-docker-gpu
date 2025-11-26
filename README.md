@@ -67,3 +67,32 @@
 
 - API 初始化：在 `server/source/system/api.go` 的 `entities` 中新增上述 Docker 接口（含 `execWs`）
 - 菜单初始化：在 `server/source/system/menu.go` 的 `childMenus` 中新增 `Docker 管理` 菜单，父级为 `systemTools`，组件路径 `view/docker/dockerManage.vue`
+
+## 新增功能：GPU 使用率计费系统
+
+- 目标：每分钟采集每台服务器的“运行中容器数量”和“容器分配的 GPU 卡数”，除以该机器的总 GPU 卡数得到使用率并保存。
+- 数据来源：
+  - 容器与配置：通过 Docker SDK 读取容器列表与 `HostConfig.DeviceRequests`（`gpu` 能力）。
+  - 主机 GPU 总卡数：优先通过 SSH 执行 `nvidia-smi/rocm-smi` 获取；失败回退资产表 `server_assets.gpu_count`。
+- 定时任务：每分钟自动采集任务 `GpuBilling` 已在后端注册（`initialize/timer.go`）。
+- 数据表：`gpu_usage_records`
+  - 字段：`asset_id`、`endpoint_id`、`measured_at`（分钟精度）、`container_count`、`host_gpu_total`、`used_gpu_cards`、`usage_rate`、`note`
+  - 唯一索引：`(endpoint_id, measured_at)` 保证同一分钟幂等。
+- 接口：
+  - `POST /billing/gpu/collect?endpointId=<id>` 手动触发一次采集
+  - `GET /billing/gpu/latest?endpointId=<id>` 获取最近一次记录
+  - `GET /billing/gpu/records?endpointId=<id>&start=<RFC3339>&end=<RFC3339>&page=<n>&pageSize=<m>` 分页查询区间记录
+  - `GET /billing/gpu/summary?endpointId=<id>&groupBy=hour|day&start=<RFC3339>&end=<RFC3339>` 聚合查询（返回每桶平均使用率、平均分配卡数、容器均值与分钟均成本）
+- 计费参数（系统参数表 `sys_params`）：
+  - `gpu.rate.perCard.perMinute` 卡·分钟单价（按分配卡数计费）
+  - `gpu.rate.perUsagePercent.perMinute` 使用率·分钟单价（按使用率计费）
+  - 聚合接口会读取并计算 `costMinuteAvg`（设置任一非零参数即可生效）。
+- 计算规则摘要：
+  - `DeviceRequests` 中包含 `gpu` 能力才计入；若 `Count=-1`（all），视为使用主机总卡数。
+  - 若 `DeviceIDs` 非空按唯一设备 ID 个数计；仅 `Count=n` 则按 `n` 计数。
+  - 总分配卡数取两者较大者，并不超过主机总卡数。
+- 验证示例：
+  - 手动采集：`POST /billing/gpu/collect?endpointId=1`
+  - 最新记录：`GET /billing/gpu/latest?endpointId=1`
+  - 分页查询：`GET /billing/gpu/records?endpointId=1&page=1&pageSize=20`
+  - 小时聚合：`GET /billing/gpu/summary?endpointId=1&groupBy=hour`
